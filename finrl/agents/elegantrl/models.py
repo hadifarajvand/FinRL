@@ -104,10 +104,18 @@ class DRLAgent:
     def train_model(self, model, cwd, total_timesteps=5000):
         model.cwd = cwd
         model.break_step = total_timesteps
+        orig_reset = model.env_class.reset
+        def patched_reset(self, *args, **kwargs):
+            result = orig_reset(self, *args, **kwargs)
+            if isinstance(result, tuple):
+                return result[0]
+            return result
+        model.env_class.reset = patched_reset
         train_agent(model)
 
     @staticmethod
-    def DRL_prediction(model_name, cwd, net_dimension, environment, env_args):
+    def DRL_prediction(model_name, cwd, net_dimension, environment, env_args, 
+                      logger=None, ticker_list=None):
         import torch
 
         gpu_id = 0  # >=0 means GPU ID, -1 means CPU
@@ -128,42 +136,103 @@ class DRLAgent:
         actor_path = f"{cwd}/act.pth"
         net_dim = [2**7]
 
+        # Log model loading information
+        if logger:
+            logger.log_model_loading(actor_path, model_name)
+            logger.log_data_info(
+                env_args["config"]["price_array"],
+                env_args["config"]["tech_array"], 
+                env_args["config"]["turbulence_array"],
+                ticker_list or [f"Ticker_{i}" for i in range(stock_dim)]
+            )
+
         """init"""
         env = environment
         env_class = env
         args = Config(agent_class=agent_class, env_class=env_class, env_args=env_args)
         args.cwd = cwd
-        act = agent_class(
-            net_dim, env.state_dim, env.action_dim, gpu_id=gpu_id, args=args
-        ).act
-        parameters_dict = {}
-        act = torch.load(actor_path)
-        for name, param in act.named_parameters():
-            parameters_dict[name] = torch.tensor(param.detach().cpu().numpy())
+        
+        try:
+            act = agent_class(
+                net_dim, env.state_dim, env.action_dim, gpu_id=gpu_id, args=args
+            ).act
+            act = torch.load(actor_path, weights_only=False)
+            parameters_dict = {}
+            for name, param in act.named_parameters():
+                parameters_dict[name] = torch.tensor(param.detach().cpu().numpy())
 
-        act.load_state_dict(parameters_dict)
+            act.load_state_dict(parameters_dict)
+            
+            if logger:
+                logger.logger.info("Model loaded successfully")
+                
+        except Exception as e:
+            if logger:
+                logger.log_error(e, "Model loading")
+            raise e
 
         if_discrete = env.if_discrete
         device = next(act.parameters()).device
         state = env.reset()
+        if isinstance(state, tuple):
+            state = state[0]
+        
+        if logger:
+            logger.logger.info(f"Initial state shape: {state.shape if hasattr(state, 'shape') else type(state)}")
+            logger.logger.info("Starting trading simulation...")
+        
         episode_returns = []  # the cumulative_return / initial_account
         episode_total_assets = [env.initial_total_asset]
         max_step = env.max_step
+        
         for steps in range(max_step):
-            s_tensor = torch.as_tensor(
-                state, dtype=torch.float32, device=device
-            ).unsqueeze(0)
-            a_tensor = act(s_tensor).argmax(dim=1) if if_discrete else act(s_tensor)
-            action = (
-                a_tensor.detach().cpu().numpy()[0]
-            )  # not need detach(), because using torch.no_grad() outside
-            state, reward, done, _ = env.step(action)
-            total_asset = env.amount + (env.price_ary[env.day] * env.stocks).sum()
-            episode_total_assets.append(total_asset)
-            episode_return = total_asset / env.initial_total_asset
-            episode_returns.append(episode_return)
-            if done:
-                break
-        print("Test Finished!")
-        print("episode_retuen", episode_return)
+            try:
+                s_tensor = torch.as_tensor(
+                    state, dtype=torch.float32, device=device
+                ).unsqueeze(0)
+                a_tensor = act(s_tensor).argmax(dim=1) if if_discrete else act(s_tensor)
+                action = (
+                    a_tensor.detach().cpu().numpy()[0]
+                )  # not need detach(), because using torch.no_grad() outside
+                state, reward, done, _ = env.step(action)
+                total_asset = env.amount + (env.price_ary[env.day] * env.stocks).sum()
+                episode_total_assets.append(total_asset)
+                episode_return = total_asset / env.initial_total_asset
+                episode_returns.append(episode_return)
+                
+                # Log step information
+                if logger:
+                    logger.log_step_info(
+                        step=steps,
+                        action=action,
+                        reward=reward,
+                        total_asset=total_asset,
+                        portfolio_value=total_asset,
+                        done=done
+                    )
+                
+                if done:
+                    break
+                    
+            except Exception as e:
+                if logger:
+                    logger.log_error(e, f"Trading step {steps}")
+                raise e
+        
+        # Log final results
+        if logger:
+            logger.logger.info("Test Finished!")
+            logger.logger.info(f"Final episode return: {episode_return:.4f}")
+            logger.log_performance_metrics(
+                final_return=episode_return,
+                total_steps=len(episode_total_assets) - 1,
+                initial_asset=env.initial_total_asset,
+                final_asset=total_asset
+            )
+            logger.save_results()
+            logger.log_test_completion(success=True)
+        else:
+            print("Test Finished!")
+            print("episode_retuen", episode_return)
+            
         return episode_total_assets

@@ -2,6 +2,20 @@ from __future__ import annotations
 
 SINGLE_TICKER = ["AAPL"]
 
+# Top 10 cryptocurrencies by market cap (available on KuCoin via CCXT)
+TOP_10_CRYPTO = [
+    "BTC/USDT",
+    "ETH/USDT", 
+    "BNB/USDT",
+    "ADA/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "DOT/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "UNI/USDT",
+]
+
 # Dow 30 constituents in 2021/10
 # check https://wrds-www.wharton.upenn.edu/ for U.S. index constituents
 DOW_30_TICKER = [

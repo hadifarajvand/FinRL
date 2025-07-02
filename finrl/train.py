@@ -33,7 +33,22 @@ def train(
     data = dp.add_technical_indicator(data, technical_indicator_list)
     if if_vix:
         data = dp.add_vix(data)
-    price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
+    
+    # Save cleaned dataset as CSV
+    import os
+    output_dir = kwargs.get("cwd", "./" + str(model_name))
+    os.makedirs(output_dir, exist_ok=True)
+    csv_filename = os.path.join(output_dir, "cleaned_dataset.csv")
+    
+    if data is not None and not data.empty:
+        data.to_csv(csv_filename)
+        print(f"Cleaned dataset saved to: {csv_filename}")
+        print(f"Dataset shape: {data.shape}")
+        print(f"Dataset columns: {list(data.columns)}")
+    else:
+        print("Warning: No data to save - dataset is empty or None")
+    
+    price_array, tech_array, turbulence_array = dp.df_to_array(data, technical_indicator_list, if_vix)
     env_config = {
         "price_array": price_array,
         "tech_array": tech_array,

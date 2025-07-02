@@ -11,12 +11,12 @@ from stockstats import StockDataFrame as Sdf
 
 class CCXTEngineer:
     def __init__(self):
-        self.binance = ccxt.binance()
+        self.kucoin = ccxt.kucoin()
 
     def data_fetch(self, start, end, pair_list=["BTC/USDT"], period="1m"):
         def min_ohlcv(dt, pair, limit):
             since = calendar.timegm(dt.utctimetuple()) * 1000
-            ohlcv = self.binance.fetch_ohlcv(
+            ohlcv = self.kucoin.fetch_ohlcv(
                 symbol=pair, timeframe="1m", since=since, limit=limit
             )
             return ohlcv
@@ -39,7 +39,7 @@ class CCXTEngineer:
                     ohlcv.extend(min_ohlcv(start_dt, pair, limit))
                 else:
                     ohlcv.extend(
-                        self.binance.fetch_ohlcv(
+                        self.kucoin.fetch_ohlcv(
                             symbol=pair, timeframe=period, since=since, limit=limit
                         )
                     )
@@ -61,8 +61,19 @@ class CCXTEngineer:
         )
         first_time = True
         for pair in pair_list:
-            start_dt = datetime.strptime(start, "%Y%m%d %H:%M:%S")
-            end_dt = datetime.strptime(end, "%Y%m%d %H:%M:%S")
+            # Handle different date formats
+            try:
+                # Try the original format first
+                start_dt = datetime.strptime(start, "%Y%m%d %H:%M:%S")
+                end_dt = datetime.strptime(end, "%Y%m%d %H:%M:%S")
+            except ValueError:
+                # If that fails, try the config format
+                start_dt = datetime.strptime(start, "%Y-%m-%d")
+                end_dt = datetime.strptime(end, "%Y-%m-%d")
+                # Set time to start of day
+                start_dt = start_dt.replace(hour=0, minute=0, second=0)
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+
             start_timestamp = calendar.timegm(start_dt.utctimetuple())
             end_timestamp = calendar.timegm(end_dt.utctimetuple())
             if period == "1m":
